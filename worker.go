@@ -16,11 +16,11 @@ type Doer interface {
 }
 
 // NewWorker will create a new Worker in a specific WorkerPool
-func NewWorker(workerPool chan chan Doer, wg *sync.WaitGroup) Worker {
+func NewWorker(workerPool chan chan Doer, wg *sync.WaitGroup, quit chan bool) Worker {
 	return Worker{
 		WorkerPool: workerPool,
 		JobChannel: make(chan Doer),
-		quit:       make(chan bool),
+		quit:       quit,
 		wait:       wg}
 }
 
@@ -40,12 +40,5 @@ func (w Worker) Start() {
 				return
 			}
 		}
-	}()
-}
-
-// Stop shuts down Worker W
-func (w Worker) Stop() {
-	go func() {
-		w.quit <- true
 	}()
 }

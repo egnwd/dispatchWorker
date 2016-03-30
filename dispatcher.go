@@ -5,18 +5,22 @@ import "sync"
 // Dispatcher delegates Jobs to Workers
 type Dispatcher struct {
 	WorkerPool chan chan Doer
-	JobQueue   chan Doer
+	jobQueue   chan Doer
 	maxSize    int
+	quit       chan bool
 	wait       *sync.WaitGroup
 }
+
+const maxQueue = 50
 
 // NewDispatcher returns the address of a new Dispatcher with maxWorkers
 // workers in it's pool
 func NewDispatcher(maxWorkers int) *Dispatcher {
 	return &Dispatcher{
 		WorkerPool: make(chan chan Doer, maxWorkers),
-		JobQueue:   make(chan Doer),
+		jobQueue:   make(chan Doer, maxQueue),
 		maxSize:    maxWorkers,
+		quit:       make(chan bool),
 		wait:       new(sync.WaitGroup)}
 }
 
@@ -24,30 +28,38 @@ func NewDispatcher(maxWorkers int) *Dispatcher {
 // function in a separate goroutine
 func (d *Dispatcher) Run() {
 	for i := 0; i < d.maxSize; i++ {
-		worker := NewWorker(d.WorkerPool, d.wait)
+		worker := NewWorker(d.WorkerPool, d.wait, d.quit)
 		worker.Start()
 	}
 
 	go d.dispatch()
 }
 
-// Wait block until all Jobs have been completed
+// Wait blocks until all Jobs have been completed
 func (d *Dispatcher) Wait() {
 	d.wait.Wait()
+}
+
+// Close closes the quit channel which will automatically shutdown
+// all the workers' goroutines, as well as the go dispatch call.
+func (d *Dispatcher) Close() {
+	close(d.quit)
 }
 
 func (d *Dispatcher) dispatch() {
 	for {
 		select {
-		case job := <-d.JobQueue:
+		case job := <-d.jobQueue:
 			channel := <-d.WorkerPool
 			channel <- job
+		case <-d.quit:
+			return
 		}
 	}
 }
 
-// CreateWork makes a job based on the ID and adds it to the queue
+// CreateWork adds a job to the queue
 func (d *Dispatcher) CreateWork(job Doer) {
 	d.wait.Add(1)
-	d.JobQueue <- job
+	go func() { d.jobQueue <- job }()
 }
